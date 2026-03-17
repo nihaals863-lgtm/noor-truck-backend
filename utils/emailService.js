@@ -1,45 +1,26 @@
 /**
  * Email Service Utility
- * Sends professional invoice emails via SMTP using nodemailer
+ * Sends professional emails via SendGrid HTTP API (NOT SMTP)
+ * Using HTTP API avoids port-blocking issues on Railway/hosted environments
  */
 
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// ─── TRANSPORTER ──────────────────────────────────────────────────────────────
-const createTransporter = () => {
-  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-  const smtpUser = process.env.SMTP_USER || '';
-  const smtpPass = process.env.SMTP_PASS || '';
+// Set API key once at startup
+const SENDGRID_API_KEY = process.env.SMTP_PASS || process.env.SENDGRID_API_KEY || '';
+const FROM_EMAIL = process.env.SMTP_FROM || process.env.SMTP_USER || 'accounting@noortruckinginc.com';
 
-  if (!smtpUser || !smtpPass) {
-    console.warn('[Email] ⚠️  SMTP credentials missing. Set SMTP_USER and SMTP_PASS in .env');
-  }
+if (SENDGRID_API_KEY) {
+  sgMail.setApiKey(SENDGRID_API_KEY);
+  console.log('[Email] ✅ SendGrid API key loaded');
+} else {
+  console.warn('[Email] ⚠️  SendGrid API key missing. Set SMTP_PASS or SENDGRID_API_KEY in .env');
+}
 
-  return nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpPort === 465,       // true for SSL (465), false for TLS (587)
-    auth: { user: smtpUser, pass: smtpPass },
-    connectionTimeout: 30000,
-    greetingTimeout: 30000,
-    socketTimeout: 60000,
-    tls: { rejectUnauthorized: false },
-  });
-};
-
-// ─── PROFESSIONAL EMAIL HTML BUILDER ─────────────────────────────────────────
+// ─── PROFESSIONAL INVOICE EMAIL HTML ─────────────────────────────────────────
 const buildInvoiceEmailHtml = ({
-  customerName,
-  invoiceNumber,
-  startDate,
-  endDate,
-  total,
-  companyName,
-  companyEmail,
-  companyPhone,
-  companyWebsite,
-  companyLogoUrl,
+  customerName, invoiceNumber, startDate, endDate, total,
+  companyName, companyEmail, companyPhone, companyWebsite, companyLogoUrl,
 }) => {
   const primaryColor = '#295b52';
   const bgColor = '#f4f6f4';
@@ -47,422 +28,282 @@ const buildInvoiceEmailHtml = ({
   const accentLight = '#e8f0ee';
 
   const logoHtml = companyLogoUrl
-    ? `<img src="${companyLogoUrl}" alt="${companyName} Logo"
-           style="max-height:70px; max-width:200px; object-fit:contain; margin-bottom:8px;" /><br/>`
+    ? `<img src="${companyLogoUrl}" alt="${companyName} Logo" style="max-height:70px;max-width:200px;object-fit:contain;margin-bottom:8px;" /><br/>`
     : '';
 
-  const totalFormatted = total != null
-    ? `$${parseFloat(total).toFixed(2)}`
-    : '';
+  const totalFormatted = total != null ? `$${parseFloat(total).toFixed(2)}` : '';
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Invoice ${invoiceNumber}</title>
-</head>
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>Invoice ${invoiceNumber}</title></head>
 <body style="margin:0;padding:0;background-color:${bgColor};font-family:'Segoe UI',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:${bgColor};padding:30px 0;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0"
-               style="background-color:${cardColor};border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
-
-          <!-- HEADER BAND -->
-          <tr>
-            <td style="background-color:${primaryColor};padding:32px 40px;text-align:center;">
-              ${logoHtml}
-              <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:1px;">
-                ${companyName}
-              </h1>
-              ${companyWebsite
-      ? `<p style="margin:6px 0 0;color:rgba(255,255,255,0.75);font-size:13px;">${companyWebsite}</p>`
-      : ''}
-            </td>
-          </tr>
-
-          <!-- INVOICE BADGE -->
-          <tr>
-            <td style="background-color:${accentLight};padding:16px 40px;border-bottom:1px solid #d4e0dd;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background-color:${cardColor};border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+        <tr><td style="background-color:${primaryColor};padding:32px 40px;text-align:center;">
+          ${logoHtml}
+          <h1 style="margin:0;color:#fff;font-size:26px;font-weight:700;">${companyName}</h1>
+          ${companyWebsite ? `<p style="margin:6px 0 0;color:rgba(255,255,255,0.75);font-size:13px;">${companyWebsite}</p>` : ''}
+        </td></tr>
+        <tr><td style="background-color:${accentLight};padding:16px 40px;border-bottom:1px solid #d4e0dd;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td><span style="font-size:20px;font-weight:700;color:${primaryColor};">INVOICE</span>
+              <span style="font-size:14px;color:#666;margin-left:10px;">${invoiceNumber}</span></td>
+            <td align="right"><span style="font-size:13px;color:#888;">Period: <strong style="color:#444;">${startDate} – ${endDate}</strong></span></td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:36px 40px;">
+          <p style="margin:0 0 16px;font-size:15px;color:#333;">Dear <strong>${customerName}</strong>,</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
+            Please find attached your invoice for the billing period <strong>${startDate}</strong> to <strong>${endDate}</strong>.
+            The PDF is attached to this email for your records.
+          </p>
+          ${totalFormatted ? `
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fbfa;border:1px solid #d4e0dd;border-radius:8px;margin-bottom:26px;">
+            <tr><td style="padding:20px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td>
-                    <span style="font-size:20px;font-weight:700;color:${primaryColor};">INVOICE</span>
-                    <span style="font-size:14px;color:#666;margin-left:10px;">${invoiceNumber}</span>
-                  </td>
-                  <td align="right">
-                    <span style="font-size:13px;color:#888;">
-                      Period: <strong style="color:#444;">${startDate} – ${endDate}</strong>
-                    </span>
-                  </td>
+                  <td style="font-size:13px;color:#888;padding-bottom:6px;">Invoice Number</td>
+                  <td align="right" style="font-size:13px;color:#888;padding-bottom:6px;">Total Amount</td>
                 </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- BODY -->
-          <tr>
-            <td style="padding:36px 40px;">
-
-              <!-- Greeting -->
-              <p style="margin:0 0 16px;font-size:15px;color:#333;">
-                Dear <strong>${customerName}</strong>,
-              </p>
-              <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
-                Please find attached your invoice for the billing period
-                <strong>${startDate}</strong> to <strong>${endDate}</strong>.
-                The PDF is attached to this email for your records.
-              </p>
-
-              <!-- Invoice Summary Box -->
-              ${totalFormatted ? `
-              <table width="100%" cellpadding="0" cellspacing="0"
-                     style="background-color:#f9fbfa;border:1px solid #d4e0dd;border-radius:8px;margin-bottom:26px;">
                 <tr>
-                  <td style="padding:20px 24px;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="font-size:13px;color:#888;padding-bottom:6px;">Invoice Number</td>
-                        <td align="right" style="font-size:13px;color:#888;padding-bottom:6px;">Total Amount</td>
-                      </tr>
-                      <tr>
-                        <td style="font-size:18px;font-weight:700;color:${primaryColor};">${invoiceNumber}</td>
-                        <td align="right" style="font-size:22px;font-weight:700;color:${primaryColor};">${totalFormatted}</td>
-                      </tr>
-                    </table>
-                  </td>
+                  <td style="font-size:18px;font-weight:700;color:${primaryColor};">${invoiceNumber}</td>
+                  <td align="right" style="font-size:22px;font-weight:700;color:${primaryColor};">${totalFormatted}</td>
                 </tr>
               </table>
-              ` : ''}
-
-              <!-- Contact note -->
-              <p style="margin:0 0 8px;font-size:14px;color:#555;line-height:1.6;">
-                If you have any questions about this invoice, please don't hesitate to contact us:
-              </p>
-              <p style="margin:0 0 28px;font-size:14px;color:#555;">
-                📧 <a href="mailto:${companyEmail}" style="color:${primaryColor};text-decoration:none;">${companyEmail}</a>
-                ${companyPhone ? `&nbsp;&nbsp;📞 ${companyPhone}` : ''}
-              </p>
-
-              <p style="margin:0;font-size:14px;color:#555;">
-                Thank you for your business. We look forward to continuing to serve you.
-              </p>
-            </td>
-          </tr>
-
-          <!-- FOOTER -->
-          <tr>
-            <td style="background-color:${accentLight};padding:22px 40px;border-top:1px solid #d4e0dd;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td>
-                    <p style="margin:0;font-size:13px;color:#666;">Best regards,</p>
-                    <p style="margin:4px 0 0;font-size:14px;font-weight:700;color:${primaryColor};">
-                      ${companyName}
-                    </p>
-                    ${companyPhone
-      ? `<p style="margin:3px 0 0;font-size:12px;color:#888;">📞 ${companyPhone}</p>`
-      : ''}
-                    <p style="margin:3px 0 0;font-size:12px;color:#888;">📧 ${companyEmail}</p>
-                    ${companyWebsite
-      ? `<p style="margin:3px 0 0;font-size:12px;color:#888;">🌐 ${companyWebsite}</p>`
-      : ''}
-                  </td>
-                  <td align="right" style="vertical-align:top;">
-                    <p style="margin:0;font-size:11px;color:#aaa;">
-                      This is an automated email.<br/>Please do not reply directly.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
+            </td></tr>
+          </table>` : ''}
+          <p style="margin:0 0 8px;font-size:14px;color:#555;">If you have any questions about this invoice, please contact us:</p>
+          <p style="margin:0 0 28px;font-size:14px;color:#555;">
+            📧 <a href="mailto:${companyEmail}" style="color:${primaryColor};text-decoration:none;">${companyEmail}</a>
+            ${companyPhone ? `&nbsp;&nbsp;📞 ${companyPhone}` : ''}
+          </p>
+          <p style="margin:0;font-size:14px;color:#555;">Thank you for your business. We look forward to continuing to serve you.</p>
+        </td></tr>
+        <tr><td style="background-color:${accentLight};padding:22px 40px;border-top:1px solid #d4e0dd;">
+          <p style="margin:0;font-size:13px;color:#666;">Best regards,</p>
+          <p style="margin:4px 0 0;font-size:14px;font-weight:700;color:${primaryColor};">${companyName}</p>
+          ${companyPhone ? `<p style="margin:3px 0 0;font-size:12px;color:#888;">📞 ${companyPhone}</p>` : ''}
+          <p style="margin:3px 0 0;font-size:12px;color:#888;">📧 ${companyEmail}</p>
+        </td></tr>
+      </table>
+    </td></tr>
   </table>
-</body>
-</html>
-  `.trim();
+</body></html>`.trim();
 };
 
-// ─── buildInvoiceEmailText ────────────────────────────────────────────────────
-const buildInvoiceEmailText = ({
-  customerName, invoiceNumber, startDate, endDate,
-  total, companyName, companyEmail, companyPhone, companyWebsite,
-}) => {
-  const totalFormatted = total != null ? `$${parseFloat(total).toFixed(2)}` : '';
-  return [
-    `Invoice ${invoiceNumber}`,
-    ``,
-    `Dear ${customerName},`,
-    ``,
-    `Please find attached your invoice for the period: ${startDate} to ${endDate}.`,
-    totalFormatted ? `Total Amount: ${totalFormatted}` : '',
-    ``,
-    `If you have any questions, please contact us:`,
-    `Email: ${companyEmail}`,
-    companyPhone ? `Phone: ${companyPhone}` : '',
-    companyWebsite ? `Website: ${companyWebsite}` : '',
-    ``,
-    `Best regards,`,
-    companyName,
-  ].filter(line => line !== null && line !== undefined).join('\n');
-};
-
-// ─── MAIN SEND FUNCTION ───────────────────────────────────────────────────────
-/**
- * Send professional invoice email with PDF attachment
- * @param {Object} options
- * @param {string}   options.to           - Recipient email
- * @param {string}   options.customerName
- * @param {string}   options.invoiceNumber
- * @param {string}   options.startDate    - Already formatted readable date
- * @param {string}   options.endDate      - Already formatted readable date
- * @param {number}  [options.total]       - Invoice total amount
- * @param {Buffer}   options.pdfBuffer
- * @param {string}   options.filename
- * @param {Object}  [options.companyInfo] - Prefetched company info (optional)
- */
-const sendInvoiceEmail = async ({
-  to,
-  customerName,
-  invoiceNumber,
-  startDate,
-  endDate,
-  total = null,
-  pdfBuffer,
-  filename,
-  companyInfo = null,
-}) => {
-  try {
-    const transporter = createTransporter();
-
-    // Fetch company profile from DB if not already provided
-    let company = companyInfo;
-    if (!company) {
-      try {
-        const pool = require('../config/db');
-        const [rows] = await pool.execute(
-          'SELECT company_name, company_logo, email, phone, website FROM company_settings LIMIT 1'
-        );
-        if (rows.length > 0) company = rows[0];
-      } catch (err) {
-        console.error('[Email] DB fetch for company info failed:', err.message);
-      }
-    }
-
-    const companyName = company?.company_name || 'Noor Trucking Inc.';
-    const companyEmail = company?.email || process.env.SMTP_FROM || process.env.SMTP_USER || 'accounting@noortruckinginc.com';
-    const companyPhone = company?.phone || '';
-    const companyWebsite = company?.website || '';
-
-    // Handle logo — base64 data URL (from DB) or remote http URL
-    let companyLogoUrl = '';
-    const emailAttachments = [{
-      filename,
-      content: pdfBuffer,
-      contentType: 'application/pdf',
-    }];
-
-    if (company?.company_logo) {
-      const logoRaw = company.company_logo;
-      if (logoRaw.startsWith('data:image')) {
-        // base64 data URL — embed as CID inline image (works on Railway, no file system)
-        const mimeMatch = logoRaw.match(/^data:(image\/[a-z+]+);base64,/);
-        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-        const base64Data = logoRaw.replace(/^data:image\/[a-z+]+;base64,/, '');
-        const ext = mimeType.split('/')[1] || 'png';
-        emailAttachments.push({
-          filename: `company_logo.${ext}`,
-          content: Buffer.from(base64Data, 'base64'),
-          contentType: mimeType,
-          cid: 'company_logo_cid',
-        });
-        companyLogoUrl = 'cid:company_logo_cid';
-      } else if (logoRaw.startsWith('http')) {
-        companyLogoUrl = logoRaw;
-      } else {
-        const port = process.env.PORT || 5000;
-        companyLogoUrl = `http://localhost:${port}${logoRaw}`;
-      }
-    }
-
-    // Email subject — "Invoice #INV-001 from Noor Trucking Inc."
-    const subject = `Invoice ${invoiceNumber} from ${companyName}`;
-
-    const emailContext = {
-      customerName, invoiceNumber, startDate, endDate, total,
-      companyName, companyEmail, companyPhone, companyWebsite, companyLogoUrl,
-    };
-
-    const htmlBody = buildInvoiceEmailHtml(emailContext);
-    const textBody = buildInvoiceEmailText(emailContext);
-
-    const fromAddress = `${companyName} <${process.env.SMTP_FROM || process.env.SMTP_USER || companyEmail}>`;
-
-    const info = await transporter.sendMail({
-      from: fromAddress,
-      to,
-      subject,
-      text: textBody,
-      html: htmlBody,
-      attachments: emailAttachments,
-    });
-
-    console.log(`[Email] ✅ Invoice email sent → ${to} (messageId: ${info.messageId})`);
-    return { success: true, messageId: info.messageId, message: 'Invoice email sent successfully' };
-
-  } catch (error) {
-    console.error('[Email] ❌ Failed to send invoice email:', error.message);
-    console.error('[Email] Error code:', error.code);
-
-    let errorMessage = 'Failed to send invoice email.';
-    if (error.code === 'EAUTH') {
-      errorMessage = 'SMTP authentication failed. Please verify your SMTP_USER and SMTP_PASS in the .env file.';
-    } else if (error.code === 'ECONNECTION' || error.code === 'ECONNREFUSED') {
-      errorMessage = 'Cannot connect to SMTP server. Check SMTP_HOST and SMTP_PORT settings.';
-    } else if (error.code === 'ETIMEDOUT') {
-      errorMessage = 'SMTP connection timed out. Check your internet connection and SMTP settings.';
-    } else if (error.responseCode === 535) {
-      errorMessage = 'Gmail authentication failed. Use an App Password, not your Gmail password. See: https://support.google.com/accounts/answer/185833';
-    } else if (error.message) {
-      errorMessage = `Email sending failed: ${error.message}`;
-    }
-
-    return { success: false, error: error.message, message: errorMessage };
-  }
-};
-
-// ─── SETTLEMENT EMAIL HTML BUILDER ──────────────────────────────
+// ─── SETTLEMENT EMAIL HTML ────────────────────────────────────────────────────
 const buildSettlementEmailHtml = ({
-  driverName, period, startDate, endDate, totalPay, companyName, companyEmail, companyPhone, companyWebsite, companyLogoUrl,
+  driverName, period, startDate, endDate, totalPay,
+  companyName, companyEmail, companyLogoUrl,
 }) => {
   const primaryColor = '#295b52';
   const bgColor = '#f4f6f4';
   const cardColor = '#ffffff';
   const accentLight = '#e8f0ee';
 
-  const logoHtml = companyLogoUrl ? `<img src="${companyLogoUrl}" alt="${companyName} Logo" style="max-height:70px; max-width:200px; object-fit:contain; margin-bottom:8px;" /><br/>` : '';
+  const logoHtml = companyLogoUrl
+    ? `<img src="${companyLogoUrl}" alt="${companyName} Logo" style="max-height:70px;max-width:200px;object-fit:contain;margin-bottom:8px;" /><br/>`
+    : '';
+
   const totalFormatted = totalPay != null ? `$${parseFloat(totalPay).toFixed(2)}` : '';
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Settlement Statement</title></head>
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>Settlement Statement</title></head>
 <body style="margin:0;padding:0;background-color:${bgColor};font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:${bgColor};padding:30px 0;"><tr><td align="center">
-    <table width="600" cellpadding="0" cellspacing="0" style="background-color:${cardColor};border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
-      <tr><td style="background-color:${primaryColor};padding:32px 40px;text-align:center;">
-        ${logoHtml}
-        <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:1px;">${companyName}</h1>
-      </td></tr>
-      <tr><td style="background-color:${accentLight};padding:16px 40px;border-bottom:1px solid #d4e0dd;">
-        <table width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td><span style="font-size:20px;font-weight:700;color:${primaryColor};">SETTLEMENT</span></td>
-          <td align="right"><span style="font-size:13px;color:#888;">Period: <strong style="color:#444;">${startDate} – ${endDate}</strong></span></td>
-        </tr></table>
-      </td></tr>
-      <tr><td style="padding:36px 40px;">
-        <p style="margin:0 0 16px;font-size:15px;color:#333;">Dear <strong>${driverName}</strong>,</p>
-        <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
-          Please find attached your settlement statement for the period <strong>${startDate}</strong> to <strong>${endDate}</strong>.
-        </p>
-        ${totalFormatted ? `
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fbfa;border:1px solid #d4e0dd;border-radius:8px;margin-bottom:26px;">
-          <tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="font-size:13px;color:#888;padding-bottom:6px;">Period</td>
-              <td align="right" style="font-size:13px;color:#888;padding-bottom:6px;">Total Pay</td>
-            </tr>
-            <tr>
-              <td style="font-size:18px;font-weight:700;color:${primaryColor};">${period}</td>
-              <td align="right" style="font-size:22px;font-weight:700;color:${primaryColor};">${totalFormatted}</td>
-            </tr>
-          </table></td></tr>
-        </table>` : ''}
-        <p style="margin:0 0 8px;font-size:14px;color:#555;line-height:1.6;">If you have any questions, please contact us:</p>
-        <p style="margin:0 0 28px;font-size:14px;color:#555;">📧 <a href="mailto:${companyEmail}" style="color:${primaryColor};text-decoration:none;">${companyEmail}</a></p>
-      </td></tr>
-    </table>
-  </td></tr></table>
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:${bgColor};padding:30px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background-color:${cardColor};border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+        <tr><td style="background-color:${primaryColor};padding:32px 40px;text-align:center;">
+          ${logoHtml}
+          <h1 style="margin:0;color:#fff;font-size:26px;font-weight:700;">${companyName}</h1>
+        </td></tr>
+        <tr><td style="background-color:${accentLight};padding:16px 40px;border-bottom:1px solid #d4e0dd;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td><span style="font-size:20px;font-weight:700;color:${primaryColor};">SETTLEMENT</span></td>
+            <td align="right"><span style="font-size:13px;color:#888;">Period: <strong style="color:#444;">${startDate} – ${endDate}</strong></span></td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:36px 40px;">
+          <p style="margin:0 0 16px;font-size:15px;color:#333;">Dear <strong>${driverName}</strong>,</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
+            Please find attached your settlement statement for the period <strong>${startDate}</strong> to <strong>${endDate}</strong>.
+          </p>
+          ${totalFormatted ? `
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fbfa;border:1px solid #d4e0dd;border-radius:8px;margin-bottom:26px;">
+            <tr><td style="padding:20px 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:13px;color:#888;padding-bottom:6px;">Period</td>
+                  <td align="right" style="font-size:13px;color:#888;padding-bottom:6px;">Total Pay</td>
+                </tr>
+                <tr>
+                  <td style="font-size:18px;font-weight:700;color:${primaryColor};">${period}</td>
+                  <td align="right" style="font-size:22px;font-weight:700;color:${primaryColor};">${totalFormatted}</td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>` : ''}
+          <p style="margin:0 0 8px;font-size:14px;color:#555;">If you have any questions, please contact us:</p>
+          <p style="margin:0 0 28px;font-size:14px;color:#555;">📧 <a href="mailto:${companyEmail}" style="color:${primaryColor};text-decoration:none;">${companyEmail}</a></p>
+        </td></tr>
+        <tr><td style="background-color:${accentLight};padding:22px 40px;border-top:1px solid #d4e0dd;">
+          <p style="margin:0;font-size:13px;color:#666;">Best regards,</p>
+          <p style="margin:4px 0 0;font-size:14px;font-weight:700;color:${primaryColor};">${companyName}</p>
+          <p style="margin:3px 0 0;font-size:12px;color:#888;">📧 ${companyEmail}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
 </body></html>`.trim();
 };
 
-const buildSettlementEmailText = ({ driverName, period, startDate, endDate, totalPay, companyName, companyEmail }) => {
-  const totalFormatted = totalPay != null ? `$${parseFloat(totalPay).toFixed(2)}` : '';
-  return [
-    `Settlement Statement for ${period}`,
-    `Dear ${driverName},`,
-    `Please find attached your settlement statement for the period: ${startDate} to ${endDate}.`,
-    totalFormatted ? `Total Pay: ${totalFormatted}` : '',
-    `If you have any questions, please contact us at ${companyEmail}.`,
-    `Best regards,\n${companyName}`
-  ].filter(Boolean).join('\n');
+// ─── HELPER: Build attachments array ─────────────────────────────────────────
+const buildAttachments = (pdfBuffer, filename, company) => {
+  const attachments = [{
+    content: pdfBuffer.toString('base64'),
+    filename,
+    type: 'application/pdf',
+    disposition: 'attachment',
+  }];
+
+  if (company?.company_logo && company.company_logo.startsWith('data:image')) {
+    const mimeMatch = company.company_logo.match(/^data:(image\/[a-z+]+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+    const base64Data = company.company_logo.replace(/^data:image\/[a-z+]+;base64,/, '');
+    const ext = mimeType.split('/')[1] || 'png';
+    attachments.push({
+      content: base64Data,
+      filename: `company_logo.${ext}`,
+      type: mimeType,
+      disposition: 'inline',
+      content_id: 'company_logo_cid',
+    });
+  }
+
+  return attachments;
 };
 
-const sendSettlementEmail = async ({ to, driverName, period, startDate, endDate, totalPay = null, pdfBuffer, filename, companyInfo = null }) => {
+// ─── HELPER: Get company info from DB ────────────────────────────────────────
+const getCompanyInfo = async (companyInfo) => {
+  if (companyInfo) return companyInfo;
   try {
-    const transporter = createTransporter();
-    let company = companyInfo;
-    if (!company) {
-      try {
-        const pool = require('../config/db');
-        const [rows] = await pool.execute('SELECT company_name, company_logo, email, phone, website FROM company_settings LIMIT 1');
-        if (rows.length > 0) company = rows[0];
-      } catch (err) {}
+    const pool = require('../config/db');
+    const [rows] = await pool.execute(
+      'SELECT company_name, company_logo, email, phone, website FROM company_settings LIMIT 1'
+    );
+    if (rows.length > 0) return rows[0];
+  } catch (err) {
+    console.error('[Email] DB fetch for company info failed:', err.message);
+  }
+  return null;
+};
+
+// ─── SEND INVOICE EMAIL ───────────────────────────────────────────────────────
+const sendInvoiceEmail = async ({
+  to, customerName, invoiceNumber, startDate, endDate,
+  total = null, pdfBuffer, filename, companyInfo = null,
+}) => {
+  try {
+    if (!SENDGRID_API_KEY) throw new Error('SendGrid API key not configured. Set SMTP_PASS in Railway environment variables.');
+
+    const company = await getCompanyInfo(companyInfo);
+    const companyName = company?.company_name || 'Noor Trucking Inc.';
+    const companyEmail = company?.email || FROM_EMAIL;
+    const companyPhone = company?.phone || '';
+    const companyWebsite = company?.website || '';
+
+    let companyLogoUrl = '';
+    if (company?.company_logo) {
+      if (company.company_logo.startsWith('data:image')) {
+        companyLogoUrl = 'cid:company_logo_cid';
+      } else if (company.company_logo.startsWith('http')) {
+        companyLogoUrl = company.company_logo;
+      }
     }
 
-    const companyName = company?.company_name || 'Noor Trucking Inc.';
-    const companyEmail = company?.email || process.env.SMTP_FROM || process.env.SMTP_USER || 'accounting@noortruckinginc.com';
-    let companyLogoUrl = '';
-    const emailAttachments = [{ filename, content: pdfBuffer, contentType: 'application/pdf' }];
+    const subject = `Invoice ${invoiceNumber} from ${companyName}`;
+    const htmlBody = buildInvoiceEmailHtml({
+      customerName, invoiceNumber, startDate, endDate, total,
+      companyName, companyEmail, companyPhone, companyWebsite, companyLogoUrl,
+    });
 
+    const msg = {
+      to,
+      from: { email: FROM_EMAIL, name: companyName },
+      subject,
+      html: htmlBody,
+      text: `Invoice ${invoiceNumber} from ${companyName}. Period: ${startDate} to ${endDate}. Please see attached PDF.`,
+      attachments: buildAttachments(pdfBuffer, filename, company),
+    };
+
+    const response = await sgMail.send(msg);
+    console.log(`[Email] ✅ Invoice email sent → ${to} (StatusCode: ${response[0].statusCode})`);
+    return { success: true, message: 'Invoice email sent successfully' };
+
+  } catch (error) {
+    console.error('[Email] ❌ Failed to send invoice email:', error.response?.body || error.message);
+    const errMsg = error.response?.body?.errors?.[0]?.message || error.message;
+    return { success: false, error: errMsg, message: `Email sending failed: ${errMsg}` };
+  }
+};
+
+// ─── SEND SETTLEMENT EMAIL ────────────────────────────────────────────────────
+const sendSettlementEmail = async ({
+  to, driverName, period, startDate, endDate,
+  totalPay = null, pdfBuffer, filename, companyInfo = null,
+}) => {
+  try {
+    if (!SENDGRID_API_KEY) throw new Error('SendGrid API key not configured. Set SMTP_PASS in Railway environment variables.');
+
+    const company = await getCompanyInfo(companyInfo);
+    const companyName = company?.company_name || 'Noor Trucking Inc.';
+    const companyEmail = company?.email || FROM_EMAIL;
+
+    let companyLogoUrl = '';
     if (company?.company_logo) {
-      const logoRaw = company.company_logo;
-      if (logoRaw.startsWith('data:image')) {
-        const mimeMatch = logoRaw.match(/^data:(image\/[a-z+]+);base64,/);
-        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-        const base64Data = logoRaw.replace(/^data:image\/[a-z+]+;base64,/, '');
-        const ext = mimeType.split('/')[1] || 'png';
-        emailAttachments.push({ filename: `company_logo.${ext}`, content: Buffer.from(base64Data, 'base64'), contentType: mimeType, cid: 'company_logo_cid' });
+      if (company.company_logo.startsWith('data:image')) {
         companyLogoUrl = 'cid:company_logo_cid';
-      } else if (logoRaw.startsWith('http')) {
-        companyLogoUrl = logoRaw;
+      } else if (company.company_logo.startsWith('http')) {
+        companyLogoUrl = company.company_logo;
       }
     }
 
     const subject = `Settlement Statement (${period}) from ${companyName}`;
-    const emailContext = { driverName, period, startDate, endDate, totalPay, companyName, companyEmail, companyLogoUrl };
-    
-    const info = await transporter.sendMail({
-      from: `${companyName} <${process.env.SMTP_FROM || process.env.SMTP_USER || companyEmail}>`,
-      to,
-      subject,
-      text: buildSettlementEmailText(emailContext),
-      html: buildSettlementEmailHtml(emailContext),
-      attachments: emailAttachments,
+    const htmlBody = buildSettlementEmailHtml({
+      driverName, period, startDate, endDate, totalPay,
+      companyName, companyEmail, companyLogoUrl,
     });
-    return { success: true, messageId: info.messageId, message: 'Settlement email sent successfully' };
+
+    const msg = {
+      to,
+      from: { email: FROM_EMAIL, name: companyName },
+      subject,
+      html: htmlBody,
+      text: `Settlement Statement for ${period}. Driver: ${driverName}. Total Pay: $${totalPay?.toFixed(2) || '0.00'}. Please see attached PDF.`,
+      attachments: buildAttachments(pdfBuffer, filename, company),
+    };
+
+    const response = await sgMail.send(msg);
+    console.log(`[Email] ✅ Settlement email sent → ${to} (StatusCode: ${response[0].statusCode})`);
+    return { success: true, message: 'Settlement email sent successfully' };
+
   } catch (error) {
-    return { success: false, error: error.message, message: `Email sending failed: ${error.message}` };
+    console.error('[Email] ❌ Failed to send settlement email:', error.response?.body || error.message);
+    const errMsg = error.response?.body?.errors?.[0]?.message || error.message;
+    return { success: false, error: errMsg, message: `Email sending failed: ${errMsg}` };
   }
 };
 
 // ─── VERIFY CONNECTION ────────────────────────────────────────────────────────
 const verifyConnection = async () => {
-  try {
-    const transporter = createTransporter();
-    await transporter.verify();
-    console.log('[Email] ✅ SMTP connection verified successfully');
-    return { success: true };
-  } catch (error) {
-    console.error('[Email] ❌ SMTP verification failed:', error.message);
-    return { success: false, error: error.message };
+  if (!SENDGRID_API_KEY) {
+    return { success: false, error: 'SendGrid API key not configured' };
   }
+  // SendGrid HTTP API — no connection to verify, just check key presence
+  console.log('[Email] ✅ SendGrid API key is configured');
+  return { success: true, message: 'SendGrid API key is configured and ready' };
 };
 
 module.exports = { sendInvoiceEmail, sendSettlementEmail, verifyConnection };
