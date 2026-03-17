@@ -161,8 +161,11 @@ const buildSettlementEmailHtml = ({
 
 // ─── HELPER: Build attachments array ─────────────────────────────────────────
 const buildAttachments = (pdfBuffer, filename, company) => {
+  // pdf-lib returns Uint8Array — must convert to Buffer before base64 encoding
+  const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+
   const attachments = [{
-    content: pdfBuffer.toString('base64'),
+    content: pdfBase64,
     filename,
     type: 'application/pdf',
     disposition: 'attachment',
