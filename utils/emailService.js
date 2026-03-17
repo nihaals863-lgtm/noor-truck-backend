@@ -337,6 +337,123 @@ const sendInvoiceEmail = async ({
   }
 };
 
+};
+
+// ─── SETTLEMENT EMAIL HTML BUILDER ──────────────────────────────
+const buildSettlementEmailHtml = ({
+  driverName, period, startDate, endDate, totalPay, companyName, companyEmail, companyPhone, companyWebsite, companyLogoUrl,
+}) => {
+  const primaryColor = '#295b52';
+  const bgColor = '#f4f6f4';
+  const cardColor = '#ffffff';
+  const accentLight = '#e8f0ee';
+
+  const logoHtml = companyLogoUrl ? `<img src="${companyLogoUrl}" alt="${companyName} Logo" style="max-height:70px; max-width:200px; object-fit:contain; margin-bottom:8px;" /><br/>` : '';
+  const totalFormatted = totalPay != null ? `$${parseFloat(totalPay).toFixed(2)}` : '';
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Settlement Statement</title></head>
+<body style="margin:0;padding:0;background-color:${bgColor};font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:${bgColor};padding:30px 0;"><tr><td align="center">
+    <table width="600" cellpadding="0" cellspacing="0" style="background-color:${cardColor};border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+      <tr><td style="background-color:${primaryColor};padding:32px 40px;text-align:center;">
+        ${logoHtml}
+        <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:1px;">${companyName}</h1>
+      </td></tr>
+      <tr><td style="background-color:${accentLight};padding:16px 40px;border-bottom:1px solid #d4e0dd;">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td><span style="font-size:20px;font-weight:700;color:${primaryColor};">SETTLEMENT</span></td>
+          <td align="right"><span style="font-size:13px;color:#888;">Period: <strong style="color:#444;">${startDate} – ${endDate}</strong></span></td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding:36px 40px;">
+        <p style="margin:0 0 16px;font-size:15px;color:#333;">Dear <strong>${driverName}</strong>,</p>
+        <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
+          Please find attached your settlement statement for the period <strong>${startDate}</strong> to <strong>${endDate}</strong>.
+        </p>
+        ${totalFormatted ? `
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fbfa;border:1px solid #d4e0dd;border-radius:8px;margin-bottom:26px;">
+          <tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-size:13px;color:#888;padding-bottom:6px;">Period</td>
+              <td align="right" style="font-size:13px;color:#888;padding-bottom:6px;">Total Pay</td>
+            </tr>
+            <tr>
+              <td style="font-size:18px;font-weight:700;color:${primaryColor};">${period}</td>
+              <td align="right" style="font-size:22px;font-weight:700;color:${primaryColor};">${totalFormatted}</td>
+            </tr>
+          </table></td></tr>
+        </table>` : ''}
+        <p style="margin:0 0 8px;font-size:14px;color:#555;line-height:1.6;">If you have any questions, please contact us:</p>
+        <p style="margin:0 0 28px;font-size:14px;color:#555;">📧 <a href="mailto:${companyEmail}" style="color:${primaryColor};text-decoration:none;">${companyEmail}</a></p>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`.trim();
+};
+
+const buildSettlementEmailText = ({ driverName, period, startDate, endDate, totalPay, companyName, companyEmail }) => {
+  const totalFormatted = totalPay != null ? `$${parseFloat(totalPay).toFixed(2)}` : '';
+  return [
+    `Settlement Statement for ${period}`,
+    `Dear ${driverName},`,
+    `Please find attached your settlement statement for the period: ${startDate} to ${endDate}.`,
+    totalFormatted ? `Total Pay: ${totalFormatted}` : '',
+    `If you have any questions, please contact us at ${companyEmail}.`,
+    `Best regards,\n${companyName}`
+  ].filter(Boolean).join('\n');
+};
+
+const sendSettlementEmail = async ({ to, driverName, period, startDate, endDate, totalPay = null, pdfBuffer, filename, companyInfo = null }) => {
+  try {
+    const transporter = createTransporter();
+    let company = companyInfo;
+    if (!company) {
+      try {
+        const pool = require('../config/db');
+        const [rows] = await pool.execute('SELECT company_name, company_logo, email, phone, website FROM company_settings LIMIT 1');
+        if (rows.length > 0) company = rows[0];
+      } catch (err) {}
+    }
+
+    const companyName = company?.company_name || 'Noor Trucking Inc.';
+    const companyEmail = company?.email || process.env.SMTP_FROM || process.env.SMTP_USER || 'accounting@noortruckinginc.com';
+    let companyLogoUrl = '';
+    const emailAttachments = [{ filename, content: pdfBuffer, contentType: 'application/pdf' }];
+
+    if (company?.company_logo) {
+      const logoRaw = company.company_logo;
+      if (logoRaw.startsWith('data:image')) {
+        const mimeMatch = logoRaw.match(/^data:(image\/[a-z+]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+        const base64Data = logoRaw.replace(/^data:image\/[a-z+]+;base64,/, '');
+        const ext = mimeType.split('/')[1] || 'png';
+        emailAttachments.push({ filename: \`company_logo.\${ext}\`, content: Buffer.from(base64Data, 'base64'), contentType: mimeType, cid: 'company_logo_cid' });
+        companyLogoUrl = 'cid:company_logo_cid';
+      } else if (logoRaw.startsWith('http')) {
+        companyLogoUrl = logoRaw;
+      }
+    }
+
+    const subject = \`Settlement Statement (\${period}) from \${companyName}\`;
+    const emailContext = { driverName, period, startDate, endDate, totalPay, companyName, companyEmail, companyLogoUrl };
+    
+    const info = await transporter.sendMail({
+      from: \`\${companyName} <\${process.env.SMTP_FROM || process.env.SMTP_USER || companyEmail}>\`,
+      to,
+      subject,
+      text: buildSettlementEmailText(emailContext),
+      html: buildSettlementEmailHtml(emailContext),
+      attachments: emailAttachments,
+    });
+    return { success: true, messageId: info.messageId, message: 'Settlement email sent successfully' };
+  } catch (error) {
+    return { success: false, error: error.message, message: \`Email sending failed: \${error.message}\` };
+  }
+};
+
 // ─── VERIFY CONNECTION ────────────────────────────────────────────────────────
 const verifyConnection = async () => {
   try {
@@ -350,4 +467,4 @@ const verifyConnection = async () => {
   }
 };
 
-module.exports = { sendInvoiceEmail, verifyConnection };
+module.exports = { sendInvoiceEmail, sendSettlementEmail, verifyConnection };

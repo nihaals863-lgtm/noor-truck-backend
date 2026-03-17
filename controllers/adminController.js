@@ -6,7 +6,7 @@
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-const { sendInvoiceEmail } = require('../utils/emailService');
+const { sendInvoiceEmail, sendSettlementEmail } = require('../utils/emailService');
 const { generateInvoicePDF, generateSettlementPDF } = require('../utils/pdfGenerator');
 const sharp = require('sharp');
 const fs = require('fs');
@@ -1372,6 +1372,77 @@ const downloadSettlement = async (req, res) => {
 };
 
 /**
+ * Send settlement via email
+ * Route: POST /admin/settlements/send
+ */
+const sendSettlementEmailHandler = async (req, res) => {
+  try {
+    const { driverId, startDate, endDate, email } = req.body;
+
+    if (!driverId || !startDate || !endDate) {
+      return res.status(400).json({ success: false, message: 'Missing parameters' });
+    }
+
+    const [drivers] = await pool.execute(
+      'SELECT d.name, d.user_id_code, u.email as user_email FROM drivers d JOIN users u ON d.user_id = u.id WHERE d.id = ?',
+      [driverId]
+    );
+    if (drivers.length === 0) return res.status(404).json({ success: false, message: 'Driver not found' });
+
+    const driver = drivers[0];
+    const recipientEmail = email || driver.user_email;
+
+    if (!recipientEmail) {
+      return res.status(400).json({ success: false, message: 'Recipient email is missing' });
+    }
+
+    const [tickets] = await pool.execute(
+      `SELECT t.*, c.name as customer_name
+       FROM tickets t
+       LEFT JOIN customers c ON t.customer_id = c.id AND c.deleted_at IS NULL
+       WHERE t.driver_id = ? AND t.date >= ? AND t.date <= ? AND t.deleted_at IS NULL
+       ORDER BY t.date ASC`,
+      [driverId, startDate, endDate]
+    );
+
+    if (tickets.length === 0) return res.status(404).json({ success: false, message: 'No tickets found' });
+
+    const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
+    const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
+
+    const { pdfBytes, filename } = await generateSettlementPDF({
+      driverName: driver.name,
+      userIdCode: driver.user_id_code,
+      startDate,
+      endDate,
+      tickets,
+      companyProfile
+    });
+
+    const totalPay = tickets.reduce((sum, t) => sum + parseFloat(t.total_pay || 0), 0);
+
+    const emailResult = await sendSettlementEmail({
+      to: recipientEmail,
+      driverName: driver.name,
+      period: `${startDate} to ${endDate}`,
+      startDate,
+      endDate,
+      totalPay,
+      pdfBuffer: pdfBytes,
+      filename,
+      companyInfo: companyProfile
+    });
+
+    if (!emailResult.success) throw new Error(emailResult.message);
+
+    return res.json({ success: true, message: `Email sent to ${recipientEmail}` });
+  } catch (error) {
+    console.error('[sendSettlementEmailHandler]', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Get bill rates (default customer bill rates)
  */
 const getBillRates = async (req, res) => {
@@ -2025,6 +2096,7 @@ module.exports = {
   generateInvoice,
   downloadInvoice,
   sendInvoiceEmailHandler,
+  sendSettlementEmailHandler,
   generateSettlement,
   downloadSettlement,
   getBillRates,

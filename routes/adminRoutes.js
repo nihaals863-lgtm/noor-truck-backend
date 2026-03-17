@@ -72,6 +72,7 @@ router.post('/invoices/send', adminController.sendInvoiceEmailHandler);
 // Settlement routes
 router.get('/settlements/generate', adminController.generateSettlement);
 router.get('/settlements/download/:driverId', adminController.downloadSettlement);
+router.post('/settlements/send', adminController.sendSettlementEmailHandler);
 
 // Data setup routes (default bill rates)
 router.get('/settings/bill-rates', adminController.getBillRates);
