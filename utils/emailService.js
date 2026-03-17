@@ -337,8 +337,6 @@ const sendInvoiceEmail = async ({
   }
 };
 
-};
-
 // ─── SETTLEMENT EMAIL HTML BUILDER ──────────────────────────────
 const buildSettlementEmailHtml = ({
   driverName, period, startDate, endDate, totalPay, companyName, companyEmail, companyPhone, companyWebsite, companyLogoUrl,
@@ -430,18 +428,18 @@ const sendSettlementEmail = async ({ to, driverName, period, startDate, endDate,
         const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
         const base64Data = logoRaw.replace(/^data:image\/[a-z+]+;base64,/, '');
         const ext = mimeType.split('/')[1] || 'png';
-        emailAttachments.push({ filename: \`company_logo.\${ext}\`, content: Buffer.from(base64Data, 'base64'), contentType: mimeType, cid: 'company_logo_cid' });
+        emailAttachments.push({ filename: `company_logo.${ext}`, content: Buffer.from(base64Data, 'base64'), contentType: mimeType, cid: 'company_logo_cid' });
         companyLogoUrl = 'cid:company_logo_cid';
       } else if (logoRaw.startsWith('http')) {
         companyLogoUrl = logoRaw;
       }
     }
 
-    const subject = \`Settlement Statement (\${period}) from \${companyName}\`;
+    const subject = `Settlement Statement (${period}) from ${companyName}`;
     const emailContext = { driverName, period, startDate, endDate, totalPay, companyName, companyEmail, companyLogoUrl };
     
     const info = await transporter.sendMail({
-      from: \`\${companyName} <\${process.env.SMTP_FROM || process.env.SMTP_USER || companyEmail}>\`,
+      from: `${companyName} <${process.env.SMTP_FROM || process.env.SMTP_USER || companyEmail}>`,
       to,
       subject,
       text: buildSettlementEmailText(emailContext),
@@ -450,7 +448,7 @@ const sendSettlementEmail = async ({ to, driverName, period, startDate, endDate,
     });
     return { success: true, messageId: info.messageId, message: 'Settlement email sent successfully' };
   } catch (error) {
-    return { success: false, error: error.message, message: \`Email sending failed: \${error.message}\` };
+    return { success: false, error: error.message, message: `Email sending failed: ${error.message}` };
   }
 };
 
