@@ -116,13 +116,13 @@ const getAllDrivers = async (req, res) => {
  */
 const createDriver = async (req, res) => {
   try {
-    const { user_id_code, name, phone, default_pay_rate, pin } = req.body;
+    const { user_id_code, name, email, phone, default_pay_rate, pin } = req.body;
 
     // Validate required fields
-    if (!user_id_code || !name || !default_pay_rate || !pin) {
+    if (!user_id_code || !name || !email || !default_pay_rate || !pin) {
       return res.status(400).json({
         success: false,
-        message: 'User ID code, name, default pay rate, and PIN are required'
+        message: 'User ID code, name, email, default pay rate, and PIN are required'
       });
     }
 
@@ -144,6 +144,19 @@ const createDriver = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'User ID code already exists'
+      });
+    }
+
+    // Check if email already exists in users table
+    const [existingEmail] = await pool.execute(
+      'SELECT id FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (existingEmail.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email address already exists'
       });
     }
 
@@ -173,7 +186,7 @@ const createDriver = async (req, res) => {
 
       // Build user INSERT query dynamically
       const userInsertCols = ['email', 'password', 'role'];
-      const userInsertVals = [`driver_${user_id_code}@trucking.com`, hashedPin, 'driver'];
+      const userInsertVals = [email, hashedPin, 'driver'];
 
       if (userExistingColumns.includes('company_id')) {
         userInsertCols.push('company_id');
@@ -231,7 +244,7 @@ const createDriver = async (req, res) => {
 const updateDriver = async (req, res) => {
   try {
     const { id } = req.params;
-    const { user_id_code, name, phone, default_pay_rate, pin } = req.body;
+    const { user_id_code, name, email, phone, default_pay_rate, pin } = req.body;
 
     // Check if driver exists
     const [drivers] = await pool.execute(
@@ -278,6 +291,25 @@ const updateDriver = async (req, res) => {
     if (default_pay_rate !== undefined) {
       updates.push('default_pay_rate = ?');
       values.push(default_pay_rate);
+    }
+
+    if (email) {
+      // Check if email already exists for another user
+      const [existingEmail] = await pool.execute(
+        'SELECT id FROM users WHERE email = ? AND id != ?',
+        [email, drivers[0].user_id]
+      );
+      if (existingEmail.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email address already exists'
+        });
+      }
+      // Update user email
+      await pool.execute(
+        'UPDATE users SET email = ? WHERE id = ?',
+        [email, drivers[0].user_id]
+      );
     }
 
     if (pin) {
