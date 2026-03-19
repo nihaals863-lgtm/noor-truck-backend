@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
   origin: '*', // Allow all origins for now
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cache-Control', 'Pragma'],
   credentials: false
 }));
 app.use(express.json({ limit: '10mb' })); // Parse JSON bodies with limit for base64 images
