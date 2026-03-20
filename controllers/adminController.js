@@ -1070,22 +1070,11 @@ const generateInvoice = async (req, res) => {
       [customerId, startDate, endDate]
     );
 
-    const subtotal = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.total_bill), 0);
-    const gst = subtotal * 0.05; // 5% GST
+    const isNoorTrucking = companyProfile.company_name === 'Noor Trucking Inc.';
+    
+    const subtotal = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.total_bill || 0), 0);
+    const gst = isNoorTrucking ? 0 : subtotal * 0.05; // 5% GST, 0 for Noor Trucking
     const total = subtotal + gst;
-
-    // Fetch company profile settings
-    const [companySettings] = await pool.execute(
-      'SELECT company_name, company_logo, address, phone, email, website FROM company_settings LIMIT 1'
-    );
-    const companyProfile = companySettings.length > 0 ? companySettings[0] : {
-      company_name: 'Noor Trucking Inc.',
-      email: 'accounting@noortruckinginc.com',
-      address: null,
-      phone: null,
-      website: null,
-      company_logo: null
-    };
 
     return res.json({
       success: true,
@@ -1099,7 +1088,8 @@ const generateInvoice = async (req, res) => {
         subtotal,
         gst,
         total,
-        company: companyProfile
+        company: companyProfile,
+        isNoorTrucking // Pass this flag to frontend
       }
     });
   } catch (error) {
@@ -1145,15 +1135,18 @@ const downloadInvoice = async (req, res) => {
     const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
     const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
 
+    const isNoorTrucking = companyProfile.company_name === 'Noor Trucking Inc.';
+
     const { pdfBytes, filename } = await generateInvoicePDF({
       customerName: customer.name,
-      customerGstNumber: customer.gst_number || '818440612RT0001',
+      customerGstNumber: customer.gst_number || (isNoorTrucking ? null : '818440612RT0001'),
       customerEmail: customer.email,
       customerPhone: customer.phone,
       startDate,
       endDate,
       tickets,
-      companyProfile
+      companyProfile,
+      isNoorTrucking
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -1202,19 +1195,23 @@ const sendInvoiceEmailHandler = async (req, res) => {
     const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
     const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
 
+    const isNoorTrucking = companyProfile.company_name === 'Noor Trucking Inc.';
+
     const { pdfBytes, filename } = await generateInvoicePDF({
       customerName: customer.name,
-      customerGstNumber: customer.gst_number || '818440612RT0001',
+      customerGstNumber: customer.gst_number || (isNoorTrucking ? null : '818440612RT0001'),
       customerEmail: customer.email,
       customerPhone: customer.phone,
       startDate,
       endDate,
       tickets,
-      companyProfile
+      companyProfile,
+      isNoorTrucking
     });
 
     const subtotal = tickets.reduce((sum, t) => sum + parseFloat(t.total_bill || 0), 0);
-    const total = subtotal * 1.05;
+    const gstAmount = isNoorTrucking ? 0 : subtotal * 0.05;
+    const total = subtotal + gstAmount;
 
     const emailResult = await sendInvoiceEmail({
       to: recipientEmail,

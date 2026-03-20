@@ -10,10 +10,12 @@ const generateInvoicePDF = async (data) => {
         customerName,
         customerGstNumber,
         customerEmail,
+        customerPhone,
         startDate,
         endDate,
         tickets,
-        companyProfile
+        companyProfile,
+        isNoorTrucking
     } = data;
 
     const pdfDoc = await PDFDocument.create();
@@ -78,7 +80,7 @@ const generateInvoicePDF = async (data) => {
     const LOGO_BOT = HDR_TOP - LOGO_MAX_H;
 
     // Embed logo
-    if (companyProfile.company_logo) {
+    if (companyProfile && companyProfile.company_logo) {
         try {
             let lbytes = null, isPng = false;
             if (companyProfile.company_logo.startsWith('data:image')) {
@@ -115,19 +117,22 @@ const generateInvoicePDF = async (data) => {
     infoY -= 12;
     currentPage.drawText(companyProfile.email || 'accounting@noortruckinginc.com', { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
     infoY -= 12;
-    // CRITICAL: GST NUMBER DISPLAY
-    currentPage.drawText('GST # 818440612RT0001', { x: INFO_X, y: infoY, size: 9, font: boldFont, color: C_PRIMARY });
+    // Conditionally show company GST number
+    if (!isNoorTrucking) {
+        currentPage.drawText('GST # 818440612RT0001', { x: INFO_X, y: infoY, size: 9, font: boldFont, color: C_PRIMARY });
+    }
 
     // Invoice Details
     const INV_DATE = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    const INV_NUM = `INV-${tickets[0].customer_id}-${String(startDate).replace(/-/g, '').slice(2)}`;
+    const INV_NUM = `INV-${tickets[0].customer_id || '0'}-${String(startDate).replace(/-/g, '').slice(2)}`;
 
     dR(currentPage, 'INVOICE', COL_R, HDR_TOP, 28, boldFont, C_PRIMARY);
     dR(currentPage, `#: ${INV_NUM}`, COL_R, HDR_TOP - 30, 9, font, C_DARK);
     dR(currentPage, `Date: ${INV_DATE}`, COL_R, HDR_TOP - 43, 9, font, C_DARK);
 
-    // Prominently show GST here too if needed
-    dR(currentPage, 'GST # 818440612RT0001', COL_R, HDR_TOP - 56, 10, boldFont, C_PRIMARY);
+    if (!isNoorTrucking) {
+        dR(currentPage, 'GST # 818440612RT0001', COL_R, HDR_TOP - 56, 10, boldFont, C_PRIMARY);
+    }
 
     hRule(currentPage, LOGO_BOT - 10);
 
@@ -139,15 +144,15 @@ const generateInvoicePDF = async (data) => {
     currentPage.drawText(String(customerName || '-').toUpperCase(), { x: ML, y: custY, size: 11, font: boldFont, color: C_DARK });
 
     custY -= 14;
-    if (data.customerPhone) {
-        currentPage.drawText(`Ph: ${data.customerPhone}`, { x: ML, y: custY, size: 9, font, color: C_MID });
+    if (customerPhone) {
+        currentPage.drawText(`Ph: ${customerPhone}`, { x: ML, y: custY, size: 9, font, color: C_MID });
         custY -= 12;
     }
     if (customerEmail) {
         currentPage.drawText(`Email: ${customerEmail}`, { x: ML, y: custY, size: 9, font, color: C_MID });
         custY -= 12;
     }
-    if (customerGstNumber) {
+    if (customerGstNumber && !isNoorTrucking) {
         currentPage.drawText(`GST: ${customerGstNumber}`, { x: ML, y: custY, size: 9, font, color: C_MID });
     }
 
@@ -157,9 +162,8 @@ const generateInvoicePDF = async (data) => {
     hRule(currentPage, BILL_Y - 55);
 
     // Table
-    // REFACTORED COLUMNS: Remove Driver/Subcontractor
-    // Date(80) | Ticket#(80) | Description(250) | Qty(40) | Rate(40) | Total(60)
-    const CW = [80, 80, 242, 40, 50, 60];
+    // Columns: Date(70) | Ticket#(70) | Truck#(50) | Description(172) | Qty(40) | Rate(60) | Total(70)
+    const CW = [70, 70, 50, 172, 40, 60, 70];
     const CGP = 2;
     const TW = CW.reduce((a, b) => a + b, 0) + CGP * (CW.length - 1); // 532
     const TBL_X = ML;
@@ -169,10 +173,10 @@ const generateInvoicePDF = async (data) => {
 
     const drawTblHdr = (pg, y) => {
         pg.drawRectangle({ x: TBL_X, y: y - HDR_H + 6, width: TW, height: HDR_H, color: C_PRIMARY });
-        const hdrs = ['Date', 'Ticket #', 'Description', 'Qty', 'Rate', 'Total'];
+        const hdrs = ['Date', 'Ticket #', 'Truck #', 'Description', 'Qty', 'Rate', 'Total'];
         let cx = TBL_X;
         hdrs.forEach((h, i) => {
-            const isNum = i >= 3;
+            const isNum = i >= 4;
             const tw2 = boldFont.widthOfTextAtSize(h, 8);
             pg.drawText(h, {
                 x: isNum ? cx + CW[i] - tw2 - 3 : cx + 5,
@@ -197,8 +201,9 @@ const generateInvoicePDF = async (data) => {
 
         const tDate = fmtS(ticket.date);
         const tNum = String(ticket.ticket_number || '-').substring(0, 15);
+        const truckNum = String(ticket.truck_number || '-').substring(0, 10);
         const desc = String(ticket.equipment_type || ticket.job_type || ticket.description || '-').substring(0, 50);
-        const dLines = wrap(desc, 45);
+        const dLines = wrap(desc, 32); 
 
         const ROW_H = Math.max(dLines.length * 12 + 8, 20);
 
@@ -211,22 +216,23 @@ const generateInvoicePDF = async (data) => {
 
         currentPage.drawText(tDate, { x: cx + 5, y: TXT_Y, size: 8, font, color: C_DARK }); cx += CW[0] + CGP;
         currentPage.drawText(tNum, { x: cx + 5, y: TXT_Y, size: 8, font, color: C_DARK }); cx += CW[1] + CGP;
+        currentPage.drawText(truckNum, { x: cx + 5, y: TXT_Y, size: 8, font, color: C_DARK }); cx += CW[2] + CGP;
 
         dLines.forEach((l, li) => {
             currentPage.drawText(l, { x: cx + 5, y: TXT_Y - li * 12, size: 8, font, color: C_DARK });
         });
-        cx += CW[2] + CGP;
+        cx += CW[3] + CGP;
 
-        dR(currentPage, parseFloat(ticket.quantity || 0).toFixed(1), cx + CW[3], TXT_Y, 8, font, C_DARK); cx += CW[3] + CGP;
-        dR(currentPage, `$${parseFloat(ticket.bill_rate || 0).toFixed(2)}`, cx + CW[4], TXT_Y, 8, font, C_DARK); cx += CW[4] + CGP;
-        dR(currentPage, `$${amt.toFixed(2)}`, cx + CW[5], TXT_Y, 8, boldFont, C_PRIMARY);
+        dR(currentPage, parseFloat(ticket.quantity || 0).toFixed(1), cx + CW[4], TXT_Y, 8, font, C_DARK); cx += CW[4] + CGP;
+        dR(currentPage, `$${parseFloat(ticket.bill_rate || 0).toFixed(2)}`, cx + CW[5], TXT_Y, 8, font, C_DARK); cx += CW[5] + CGP;
+        dR(currentPage, `$${amt.toFixed(2)}`, cx + CW[6], TXT_Y, 8, boldFont, C_PRIMARY);
 
         curY -= ROW_H;
     });
 
     // Totals
-    const gst = subtotal * 0.05;
-    const total = subtotal + gst;
+    const gstCalc = isNoorTrucking ? 0 : subtotal * 0.05;
+    const totalAmount = subtotal + gstCalc;
 
     curY -= 20;
     if (curY < 120) { currentPage = pdfDoc.addPage([PG_W, PG_H]); curY = PG_H - 80; }
@@ -234,23 +240,28 @@ const generateInvoicePDF = async (data) => {
     const TOT_X = COL_R - 150;
     currentPage.drawText('Subtotal:', { x: TOT_X, y: curY, size: 10, font, color: C_MID });
     dR(currentPage, `$${subtotal.toFixed(2)}`, COL_R, curY, 10, font, C_DARK);
-    curY -= 16;
-    currentPage.drawText('GST (5%):', { x: TOT_X, y: curY, size: 10, font, color: C_MID });
-    dR(currentPage, `$${gst.toFixed(2)}`, COL_R, curY, 10, font, C_DARK);
+    
+    if (!isNoorTrucking) {
+        curY -= 16;
+        currentPage.drawText('GST (5%):', { x: TOT_X, y: curY, size: 10, font, color: C_MID });
+        dR(currentPage, `$${gstCalc.toFixed(2)}`, COL_R, curY, 10, font, C_DARK);
+    }
+    
     curY -= 10;
     currentPage.drawRectangle({ x: TOT_X, y: curY, width: COL_R - TOT_X, height: 1, color: C_PRIMARY });
     curY -= 18;
     currentPage.drawText('TOTAL DUE:', { x: TOT_X, y: curY, size: 12, font: boldFont, color: C_PRIMARY });
-    dR(currentPage, `$${total.toFixed(2)}`, COL_R, curY, 12, boldFont, C_PRIMARY);
+    dR(currentPage, `$${totalAmount.toFixed(2)}`, COL_R, curY, 12, boldFont, C_PRIMARY);
 
     // Footer
-    const footerText = `${companyProfile.company_name} | accounting@noortruckinginc.com | ${INV_NUM}`;
+    const footerText = `${companyProfile.company_name} | ${companyProfile.email || ''} | ${INV_NUM}`;
     const ftw = font.widthOfTextAtSize(footerText, 8);
     currentPage.drawText(footerText, { x: (PG_W - ftw) / 2, y: 30, size: 8, font, color: C_MID });
 
     const pdfBytes = await pdfDoc.save();
     return { pdfBytes, filename: `Invoice-${customerName.replace(/[^a-z0-9]/gi, '_')}-${startDate}.pdf` };
 };
+
 
 /**
  * Professional Settlement PDF Generator
