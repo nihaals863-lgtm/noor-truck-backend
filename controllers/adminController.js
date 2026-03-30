@@ -1070,8 +1070,12 @@ const generateInvoice = async (req, res) => {
       [customerId, startDate, endDate]
     );
 
+    // Get company settings for invoice header/GST logic
+    const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
+    const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
+
     const isNoorTrucking = companyProfile.company_name === 'Noor Trucking Inc.';
-    
+
     const subtotal = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.total_bill || 0), 0);
     const gst = isNoorTrucking ? 0 : subtotal * 0.05; // 5% GST, 0 for Noor Trucking
     const total = subtotal + gst;
@@ -2140,4 +2144,3 @@ module.exports = {
   deleteCompany,
   uploadLogo // NEW
 };
-
