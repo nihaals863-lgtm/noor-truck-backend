@@ -832,30 +832,34 @@ const getTicketById = async (req, res) => {
 };
 
 /**
- * Update ticket - Admin can edit all fields
+ * Update ticket
  */
 const updateTicket = async (req, res) => {
   try {
     const { id } = req.params;
-    const body = req.body;
-
-    // Fields that are allowed to be updated
-    const allowedFields = [
-      'date', 'truck_number', 'customer_id', 'driver_id',
-      'equipment_type', 'job_type', 'description',
-      'ticket_number', 'quantity', 'bill_rate', 'pay_rate',
-      'status', 'notes', 'invoiced', 'invoice_id'
-    ];
+    const { bill_rate, pay_rate, status, quantity } = req.body;
 
     const updates = [];
     const values = [];
 
-    // Build dynamic query
-    for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        updates.push(`${field} = ?`);
-        values.push(body[field]);
-      }
+    if (bill_rate !== undefined) {
+      updates.push('bill_rate = ?');
+      values.push(bill_rate);
+    }
+
+    if (pay_rate !== undefined) {
+      updates.push('pay_rate = ?');
+      values.push(pay_rate);
+    }
+
+    if (status) {
+      updates.push('status = ?');
+      values.push(status);
+    }
+
+    if (quantity !== undefined) {
+      updates.push('quantity = ?');
+      values.push(quantity);
     }
 
     if (updates.length === 0) {
@@ -865,27 +869,30 @@ const updateTicket = async (req, res) => {
       });
     }
 
-    // Recalculate totals if quantity, rates are changed
-    // First get current values for items not provided in body
-    const [current] = await pool.execute(
+    // Get current ticket to recalculate totals
+    const [tickets] = await pool.execute(
       'SELECT quantity, bill_rate, pay_rate FROM tickets WHERE id = ?',
       [id]
     );
 
-    if (current.length === 0) {
-      return res.status(404).json({ success: false, message: 'Ticket not found' });
+    if (tickets.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Ticket not found'
+      });
     }
 
-    const finalQty = body.quantity !== undefined ? body.quantity : current[0].quantity;
-    const finalBillRate = body.bill_rate !== undefined ? body.bill_rate : current[0].bill_rate;
-    const finalPayRate = body.pay_rate !== undefined ? body.pay_rate : current[0].pay_rate;
+    const currentTicket = tickets[0];
+    const finalQty = quantity !== undefined ? quantity : currentTicket.quantity;
+    const finalBillRate = bill_rate !== undefined ? bill_rate : currentTicket.bill_rate;
+    const finalPayRate = pay_rate !== undefined ? pay_rate : currentTicket.pay_rate;
 
-    // Add total calculations to updates
+    // Calculate totals
     updates.push('total_bill = ?');
-    values.push(parseFloat(finalQty || 0) * parseFloat(finalBillRate || 0));
+    values.push(finalQty * finalBillRate);
 
     updates.push('total_pay = ?');
-    values.push(parseFloat(finalQty || 0) * parseFloat(finalPayRate || 0));
+    values.push(finalQty * finalPayRate);
 
     values.push(id);
     await pool.execute(
@@ -1068,7 +1075,7 @@ const generateInvoice = async (req, res) => {
     const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
 
     const subtotal = tickets.reduce((sum, ticket) => sum + parseFloat(ticket.total_bill || 0), 0);
-    const gst = subtotal * 0.05; // 5% GST always included
+    const gst = subtotal * 0.05; // 5% GST for everyone
     const total = subtotal + gst;
 
     return res.json({
@@ -1083,7 +1090,8 @@ const generateInvoice = async (req, res) => {
         subtotal,
         gst,
         total,
-        company: companyProfile
+        company: companyProfile,
+        isNoorTrucking // Pass this flag to frontend
       }
     });
   } catch (error) {
@@ -1129,8 +1137,6 @@ const downloadInvoice = async (req, res) => {
     const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
     const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
 
-    const isNoorTrucking = companyProfile.company_name === 'Noor Trucking Inc.';
-
     const { pdfBytes, filename } = await generateInvoicePDF({
       customerName: customer.name,
       customerGstNumber: customer.gst_number || '818440612RT0001',
@@ -1140,7 +1146,7 @@ const downloadInvoice = async (req, res) => {
       endDate,
       tickets,
       companyProfile,
-      isNoorTrucking: false
+      isNoorTrucking: false // Always show GST logic now
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -1193,14 +1199,14 @@ const sendInvoiceEmailHandler = async (req, res) => {
 
     const { pdfBytes, filename } = await generateInvoicePDF({
       customerName: customer.name,
-      customerGstNumber: customer.gst_number || '818440612RT0001',
+      customerGstNumber: customer.gst_number || (isNoorTrucking ? null : '818440612RT0001'),
       customerEmail: customer.email,
       customerPhone: customer.phone,
       startDate,
       endDate,
       tickets,
       companyProfile,
-      isNoorTrucking: false
+      isNoorTrucking
     });
 
     const subtotal = tickets.reduce((sum, t) => sum + parseFloat(t.total_bill || 0), 0);

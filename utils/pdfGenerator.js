@@ -117,7 +117,7 @@ const generateInvoicePDF = async (data) => {
     infoY -= 12;
     currentPage.drawText(companyProfile.email || 'accounting@noortruckinginc.com', { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
     infoY -= 12;
-    // Conditionally show company GST number
+    // Always show company GST number
     currentPage.drawText('GST # 818440612RT0001', { x: INFO_X, y: infoY, size: 9, font: boldFont, color: C_PRIMARY });
 
     // Invoice Details
@@ -227,6 +227,7 @@ const generateInvoicePDF = async (data) => {
     });
 
     // Totals
+    // Totals (Always calculate 5% GST)
     const gstCalc = subtotal * 0.05;
     const totalAmount = subtotal + gstCalc;
 
