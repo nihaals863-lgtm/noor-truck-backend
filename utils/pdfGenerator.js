@@ -118,9 +118,7 @@ const generateInvoicePDF = async (data) => {
     currentPage.drawText(companyProfile.email || 'accounting@noortruckinginc.com', { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
     infoY -= 12;
     // Conditionally show company GST number
-    if (!isNoorTrucking) {
-        currentPage.drawText('GST # 818440612RT0001', { x: INFO_X, y: infoY, size: 9, font: boldFont, color: C_PRIMARY });
-    }
+    currentPage.drawText('GST # 818440612RT0001', { x: INFO_X, y: infoY, size: 9, font: boldFont, color: C_PRIMARY });
 
     // Invoice Details
     const INV_DATE = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -130,9 +128,7 @@ const generateInvoicePDF = async (data) => {
     dR(currentPage, `#: ${INV_NUM}`, COL_R, HDR_TOP - 30, 9, font, C_DARK);
     dR(currentPage, `Date: ${INV_DATE}`, COL_R, HDR_TOP - 43, 9, font, C_DARK);
 
-    if (!isNoorTrucking) {
-        dR(currentPage, 'GST # 818440612RT0001', COL_R, HDR_TOP - 56, 10, boldFont, C_PRIMARY);
-    }
+    dR(currentPage, 'GST # 818440612RT0001', COL_R, HDR_TOP - 56, 10, boldFont, C_PRIMARY);
 
     hRule(currentPage, LOGO_BOT - 10);
 
@@ -152,7 +148,7 @@ const generateInvoicePDF = async (data) => {
         currentPage.drawText(`Email: ${customerEmail}`, { x: ML, y: custY, size: 9, font, color: C_MID });
         custY -= 12;
     }
-    if (customerGstNumber && !isNoorTrucking) {
+    if (customerGstNumber) {
         currentPage.drawText(`GST: ${customerGstNumber}`, { x: ML, y: custY, size: 9, font, color: C_MID });
     }
 
@@ -203,7 +199,7 @@ const generateInvoicePDF = async (data) => {
         const tNum = String(ticket.ticket_number || '-').substring(0, 15);
         const truckNum = String(ticket.truck_number || '-').substring(0, 10);
         const desc = String(ticket.equipment_type || ticket.job_type || ticket.description || '-').substring(0, 50);
-        const dLines = wrap(desc, 32); 
+        const dLines = wrap(desc, 32);
 
         const ROW_H = Math.max(dLines.length * 12 + 8, 20);
 
@@ -231,7 +227,7 @@ const generateInvoicePDF = async (data) => {
     });
 
     // Totals
-    const gstCalc = isNoorTrucking ? 0 : subtotal * 0.05;
+    const gstCalc = subtotal * 0.05;
     const totalAmount = subtotal + gstCalc;
 
     curY -= 20;
@@ -240,13 +236,11 @@ const generateInvoicePDF = async (data) => {
     const TOT_X = COL_R - 150;
     currentPage.drawText('Subtotal:', { x: TOT_X, y: curY, size: 10, font, color: C_MID });
     dR(currentPage, `$${subtotal.toFixed(2)}`, COL_R, curY, 10, font, C_DARK);
-    
-    if (!isNoorTrucking) {
-        curY -= 16;
-        currentPage.drawText('GST (5%):', { x: TOT_X, y: curY, size: 10, font, color: C_MID });
-        dR(currentPage, `$${gstCalc.toFixed(2)}`, COL_R, curY, 10, font, C_DARK);
-    }
-    
+
+    curY -= 16;
+    currentPage.drawText('GST (5%):', { x: TOT_X, y: curY, size: 10, font, color: C_MID });
+    dR(currentPage, `$${gstCalc.toFixed(2)}`, COL_R, curY, 10, font, C_DARK);
+
     curY -= 10;
     currentPage.drawRectangle({ x: TOT_X, y: curY, width: COL_R - TOT_X, height: 1, color: C_PRIMARY });
     curY -= 18;
