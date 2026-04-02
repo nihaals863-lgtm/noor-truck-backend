@@ -1078,6 +1078,8 @@ const generateInvoice = async (req, res) => {
     const gst = subtotal * 0.05; // 5% GST for everyone
     const total = subtotal + gst;
 
+    const isNoorTrucking = companyProfile.company_name === 'Noor Trucking Inc.';
+
     return res.json({
       success: true,
       data: {
