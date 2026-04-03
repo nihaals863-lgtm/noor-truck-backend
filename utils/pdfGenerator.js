@@ -116,9 +116,6 @@ const generateInvoicePDF = async (data) => {
     currentPage.drawText(`Tel: ${companyProfile.phone || '+1 (780) 555-0100'}`, { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
     infoY -= 12;
     currentPage.drawText(companyProfile.email || 'accounting@noortruckinginc.com', { x: INFO_X, y: infoY, size: 8.5, font, color: C_MID });
-    infoY -= 12;
-    // Always show company GST number
-    currentPage.drawText('GST # 818440612RT0001', { x: INFO_X, y: infoY, size: 9, font: boldFont, color: C_PRIMARY });
 
     // Invoice Details
     const INV_DATE = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -148,9 +145,6 @@ const generateInvoicePDF = async (data) => {
         currentPage.drawText(`Email: ${customerEmail}`, { x: ML, y: custY, size: 9, font, color: C_MID });
         custY -= 12;
     }
-    if (customerGstNumber) {
-        currentPage.drawText(`GST: ${customerGstNumber}`, { x: ML, y: custY, size: 9, font, color: C_MID });
-    }
 
     currentPage.drawText('PERIOD:', { x: COL_R - 180, y: BILL_Y, size: 8, font: boldFont, color: C_PRIMARY });
     currentPage.drawText(`${fmtL(startDate)} – ${fmtL(endDate)}`, { x: COL_R - 180, y: BILL_Y - 15, size: 9.5, font, color: C_DARK });
@@ -176,7 +170,7 @@ const generateInvoicePDF = async (data) => {
             const tw2 = boldFont.widthOfTextAtSize(h, 8);
             pg.drawText(h, {
                 x: isNum ? cx + CW[i] - tw2 - 3 : cx + 5,
-                y: y - 14, size: 8, font: boldFont, color: C_WHITE,
+                y: y - 8, size: 8, font: boldFont, color: C_WHITE,
             });
             cx += CW[i] + CGP;
         });
@@ -309,10 +303,11 @@ const generateSettlementPDF = async (data) => {
         } catch (e) { }
     }
     currentPage.drawText((companyProfile.company_name || 'Noor Trucking Inc.').toUpperCase(), { x: 140, y: HDR_TOP, size: 16, font: boldFont, color: C_PRIMARY });
-    currentPage.drawText(`GST # 818440612RT0001`, { x: 140, y: HDR_TOP - 18, size: 9, font: boldFont, color: C_PRIMARY });
 
     dR(currentPage, 'SETTLEMENT', COL_R, HDR_TOP, 24, boldFont, C_PRIMARY);
-    dR(currentPage, `Period: ${fmtL(startDate)} - ${fmtL(endDate)}`, COL_R, HDR_TOP - 30, 9, font, C_DARK);
+    // Exact format for Settlement: GST # 818440612RT0001
+    dR(currentPage, 'GST # 818440612RT0001', COL_R, HDR_TOP - 28, 9, boldFont, C_PRIMARY);
+    dR(currentPage, `Period: ${fmtL(startDate)} - ${fmtL(endDate)}`, COL_R, HDR_TOP - 42, 9, font, C_DARK);
 
     const INFO_Y = HDR_TOP - 80;
     currentPage.drawText('DRIVER INFO:', { x: ML, y: INFO_Y, size: 8, font: boldFont, color: C_PRIMARY });
@@ -325,7 +320,15 @@ const generateSettlementPDF = async (data) => {
         pg.drawRectangle({ x: ML, y: y - 16, width: COL_R - ML, height: 20, color: C_PRIMARY });
         const h = ['Date', 'Ticket #', 'Description', 'Qty', 'Rate', 'Total Pay'];
         let cx = ML;
-        h.forEach((txt, i) => { dR(pg, txt, cx + CW[i], y - 10, 8, boldFont, C_WHITE); cx += CW[i] + 5; });
+        h.forEach((txt, i) => {
+            const isNum = i >= 3;
+            if (isNum) {
+                dR(pg, txt, cx + CW[i], y - 6, 8, boldFont, C_WHITE);
+            } else {
+                pg.drawText(txt, { x: cx + 5, y: y - 6, size: 8, font: boldFont, color: C_WHITE });
+            }
+            cx += CW[i] + 5;
+        });
         return y - 25;
     };
 

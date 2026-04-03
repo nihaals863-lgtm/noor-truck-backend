@@ -58,8 +58,10 @@ router.delete('/customers/:id', adminController.deleteCustomer);
 // Ticket management routes
 router.get('/tickets', adminController.getAllTickets);
 router.get('/tickets/:id', adminController.getTicketById);
+router.get('/months', adminController.getAvailableMonths);
 router.put('/tickets/:id', adminController.updateTicket);
 router.put('/tickets/:id/status', adminController.updateTicketStatus);
+router.get('/months', adminController.getAvailableMonths);
 
 // Dashboard routes
 router.get('/dashboard/stats', adminController.getDashboardStats);
