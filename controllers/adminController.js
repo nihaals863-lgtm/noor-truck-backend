@@ -686,7 +686,8 @@ const deleteCustomer = async (req, res) => {
  */
 const getAllTickets = async (req, res) => {
   try {
-    const { month, customer, driver, status, search } = req.query;
+    const { startDate, endDate, customer, driver, status, search } = req.query;
+
     let query = `
       SELECT t.*, d.name as driver_name, d.user_id_code,
              c.name as customer_name, c.id as customer_id_fk
@@ -697,55 +698,34 @@ const getAllTickets = async (req, res) => {
     `;
     const params = [];
 
-    if (month && month.trim() !== '') {
-      let monthNum, year;
-
-      // Handle different month formats
-      if (month.includes('-')) {
-        // Format: "2025-11" (YYYY-MM)
-        const parts = month.split('-');
-        if (parts.length === 2 && parts[0] && parts[1]) {
-          year = parseInt(parts[0], 10);
-          monthNum = parseInt(parts[1], 10);
-        }
-      } else {
-        // Format: "Nov 2025" or "November 2025"
-        const parts = month.split(' ');
-        if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
-          const monthName = parts[0];
-          year = parseInt(parts[parts.length - 1], 10);
-          const dateObj = new Date(`${monthName} 1, ${year}`);
-          if (!isNaN(dateObj.getTime())) {
-            monthNum = dateObj.getMonth() + 1;
-          }
-        }
-      }
-
-      // Only add to query if we have valid month and year
-      if (monthNum && year && !isNaN(monthNum) && !isNaN(year) && monthNum >= 1 && monthNum <= 12) {
-        query += ` AND MONTH(t.date) = ? AND YEAR(t.date) = ?`;
-        params.push(monthNum, year);
-      }
+    // 1. Date Range
+    if (startDate && endDate) {
+      query += ` AND (t.date BETWEEN ? AND ?)`;
+      params.push(startDate, endDate);
     }
 
-    if (customer && customer !== 'All' && customer.trim() !== '') {
-      query += ` AND t.customer = ?`;
+    // 2. Customer Filter
+    if (customer && customer !== 'All') {
+      query += ` AND c.name = ?`;
       params.push(customer);
     }
 
-    if (driver && driver !== 'All' && driver.trim() !== '') {
+    // 3. Driver Filter
+    if (driver && driver !== 'All') {
       query += ` AND d.name = ?`;
       params.push(driver);
     }
 
-    if (status && status.trim() !== '') {
+    // 4. Status Filter
+    if (status && status !== 'All') {
       query += ` AND t.status = ?`;
       params.push(status);
     }
 
+    // 5. Search Filter
     if (search && search.trim() !== '') {
-      query += ` AND t.ticket_number LIKE ?`;
-      params.push(`%${search}%`);
+      query += ` AND (t.ticket_number LIKE ? OR c.name LIKE ? OR d.name LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     query += ` ORDER BY t.date DESC, t.created_at DESC`;
@@ -837,10 +817,47 @@ const getTicketById = async (req, res) => {
 const updateTicket = async (req, res) => {
   try {
     const { id } = req.params;
-    const { bill_rate, pay_rate, status, quantity } = req.body;
+    const {
+      date,
+      truck_number,
+      customer,
+      equipment_type,
+      ticket_number,
+      quantity,
+      bill_rate,
+      pay_rate,
+      status
+    } = req.body;
 
     const updates = [];
     const values = [];
+
+    if (date !== undefined) {
+      // Extract only YYYY-MM-DD part in case frontend sends ISO string
+      const sanitizedDate = date && date.toString().includes('T') ? date.toString().split('T')[0] : date;
+      updates.push('date = ?');
+      values.push(sanitizedDate);
+    }
+
+    if (truck_number !== undefined) {
+      updates.push('truck_number = ?');
+      values.push(truck_number);
+    }
+
+    if (customer !== undefined) {
+      updates.push('customer = ?');
+      values.push(customer);
+    }
+
+    if (equipment_type !== undefined) {
+      updates.push('equipment_type = ?');
+      values.push(equipment_type);
+    }
+
+    if (ticket_number !== undefined) {
+      updates.push('ticket_number = ?');
+      values.push(ticket_number);
+    }
 
     if (bill_rate !== undefined) {
       updates.push('bill_rate = ?');
@@ -852,7 +869,7 @@ const updateTicket = async (req, res) => {
       values.push(pay_rate);
     }
 
-    if (status) {
+    if (status !== undefined) {
       updates.push('status = ?');
       values.push(status);
     }
@@ -1116,14 +1133,21 @@ const downloadInvoice = async (req, res) => {
     const { customerId } = req.params;
     const { startDate, endDate } = req.query;
 
+    console.log(`[PDF Download] Request received: customerId=${customerId}, startDate=${startDate}, endDate=${endDate}`);
+
     if (!customerId || !startDate || !endDate) {
+      console.error('[PDF Download] Missing required parameters');
       return res.status(400).json({ success: false, message: 'Customer ID, start date, and end date are required' });
     }
 
     const [customers] = await pool.execute('SELECT name, gst_number, email, phone FROM customers WHERE id = ?', [customerId]);
-    if (customers.length === 0) return res.status(404).json({ success: false, message: 'Customer not found' });
+    if (customers.length === 0) {
+      console.error(`[PDF Download] Customer not found: id=${customerId}`);
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
 
     const customer = customers[0];
+    console.log(`[PDF Download] Customer found: ${customer.name}`);
 
     const [tickets] = await pool.execute(
       `SELECT t.*, DATE(t.date) as date, d.name as driver_name, d.user_id_code
@@ -1134,7 +1158,12 @@ const downloadInvoice = async (req, res) => {
       [customerId, startDate, endDate]
     );
 
-    if (tickets.length === 0) return res.status(404).json({ success: false, message: 'No approved tickets found' });
+    if (tickets.length === 0) {
+      console.warn(`[PDF Download] No approved tickets found for customer ${customer.name} in range ${startDate} to ${endDate}`);
+      return res.status(404).json({ success: false, message: 'No approved tickets found for this period' });
+    }
+
+    console.log(`[PDF Download] Found ${tickets.length} tickets. Generating PDF...`);
 
     const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
     const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
@@ -1151,13 +1180,31 @@ const downloadInvoice = async (req, res) => {
       isNoorTrucking: false // Always show GST logic now
     });
 
+    if (!pdfBytes || pdfBytes.length === 0) {
+      throw new Error('PDF generation failed: result is empty');
+    }
+
+    const headerHex = Buffer.from(pdfBytes.slice(0, 4)).toString('hex');
+    const isPDF = Buffer.from(pdfBytes.slice(0, 4)).toString() === '%PDF';
+    console.log(`[PDF Download] PDF generated: ${pdfBytes.length} bytes. Header: ${isPDF ? 'Valid (%PDF)' : 'INVALID (' + headerHex + ')'}`);
+
+    if (!isPDF) {
+      throw new Error('PDF generation produced invalid header');
+    }
+
+    // Set robust headers for binary download
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBytes.length);
-    return res.end(pdfBytes);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    console.log(`[PDF Download] Sending PDF response: ${filename} (${pdfBytes.length} bytes)`);
+    return res.end(Buffer.from(pdfBytes));
   } catch (error) {
-    console.error('[downloadInvoice]', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('[PDF Download] ERROR:', error);
+    return res.status(500).json({ success: false, message: 'PDF Error: ' + error.message });
   }
 };
 
@@ -1360,14 +1407,21 @@ const downloadSettlement = async (req, res) => {
     const { driverId } = req.params;
     const { startDate, endDate } = req.query;
 
+    console.log(`[Settlement Download] Request received: driverId=${driverId}, range=${startDate} to ${endDate}`);
+
     if (!driverId || !startDate || !endDate) {
+      console.error('[Settlement Download] Missing required parameters');
       return res.status(400).json({ success: false, message: 'Driver ID, start date, and end date are required' });
     }
 
     const [drivers] = await pool.execute('SELECT name, user_id_code FROM drivers WHERE id = ?', [driverId]);
-    if (drivers.length === 0) return res.status(404).json({ success: false, message: 'Driver not found' });
+    if (drivers.length === 0) {
+      console.error(`[Settlement Download] Driver not found: id=${driverId}`);
+      return res.status(404).json({ success: false, message: 'Driver not found' });
+    }
 
     const driver = drivers[0];
+    console.log(`[Settlement Download] Driver found: ${driver.name}`);
 
     const [tickets] = await pool.execute(
       `SELECT t.*, c.name as customer_name
@@ -1378,7 +1432,12 @@ const downloadSettlement = async (req, res) => {
       [driverId, startDate, endDate]
     );
 
-    if (tickets.length === 0) return res.status(404).json({ success: false, message: 'No tickets found' });
+    if (tickets.length === 0) {
+      console.warn(`[Settlement Download] No tickets found for driver ${driver.name} in range ${startDate} to ${endDate}`);
+      return res.status(404).json({ success: false, message: 'No tickets found for this period' });
+    }
+
+    console.log(`[Settlement Download] Found ${tickets.length} tickets. Generating PDF...`);
 
     const [compSettings] = await pool.execute('SELECT * FROM company_settings LIMIT 1');
     const companyProfile = compSettings[0] || { company_name: 'Noor Trucking Inc.', email: 'accounting@noortruckinginc.com' };
@@ -1392,13 +1451,30 @@ const downloadSettlement = async (req, res) => {
       companyProfile
     });
 
+    if (!pdfBytes || pdfBytes.length === 0) {
+      throw new Error('PDF generation failed: result is empty');
+    }
+
+    const isPDF = Buffer.from(pdfBytes.slice(0, 4)).toString() === '%PDF';
+    console.log(`[Settlement Download] PDF generated: ${pdfBytes.length} bytes. Header: ${isPDF ? 'Valid (%PDF)' : 'INVALID'}`);
+
+    if (!isPDF) {
+      throw new Error('PDF generation produced invalid header');
+    }
+
+    // Set robust headers for binary download
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBytes.length);
-    return res.end(pdfBytes);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    console.log(`[Settlement Download] Sending PDF response: ${filename} (${pdfBytes.length} bytes)`);
+    return res.end(Buffer.from(pdfBytes));
   } catch (error) {
-    console.error('[downloadSettlement]', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('[Settlement Download] ERROR:', error);
+    return res.status(500).json({ success: false, message: 'Settlement PDF Error: ' + error.message });
   }
 };
 
@@ -2109,8 +2185,35 @@ const uploadLogo = async (req, res) => {
   }
 };
 
+/**
+ * Get distinct months available in tickets for filtering
+ */
+const getAvailableMonths = async (req, res) => {
+  try {
+    const [months] = await pool.execute(
+      `SELECT DISTINCT DATE_FORMAT(date, '%Y-%m') as month_val, 
+              DATE_FORMAT(date, '%b %Y') as month_label 
+       FROM tickets 
+       WHERE deleted_at IS NULL
+       ORDER BY month_val DESC`
+    );
+    // Write debug log to file
+    fs.appendFileSync('debug_months.log', `[${new Date().toISOString()}] Months found: ${JSON.stringify(months)}\n`);
+    return res.json({
+      success: true,
+      data: months
+    });
+  } catch (error) {
+    console.error('Error fetching available months:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch available months',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
-  // Existing exports...
   getAllDrivers,
   createDriver,
   updateDriver,
@@ -2140,5 +2243,6 @@ module.exports = {
   createCompany,
   updateCompany,
   deleteCompany,
-  uploadLogo // NEW
+  uploadLogo,
+  getAvailableMonths
 };

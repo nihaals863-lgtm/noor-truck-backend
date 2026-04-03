@@ -300,7 +300,7 @@ const getTicketById = async (req, res) => {
 const getMyPay = async (req, res) => {
   try {
     const driverId = req.user.driverId || req.user.id;
-    const { month } = req.query; // Format: "2025-11" or "November 2025"
+    const { month, startDate, endDate, status, search } = req.query;
 
     // Get actual driver ID
     const [drivers] = await pool.execute(
@@ -321,24 +321,48 @@ const getMyPay = async (req, res) => {
       SELECT 
         date, customer, ticket_number, quantity as hours, total_pay as amount, status
       FROM tickets
-      WHERE driver_id = ?
+      WHERE driver_id = ? AND deleted_at IS NULL
     `;
     const params = [actualDriverId];
 
-    if (month) {
-      // Parse month string like "November 2025" or "2025-11"
+    // 1. Date Range Filter
+    if (startDate && endDate) {
+      query += ` AND (date BETWEEN ? AND ?)`;
+      params.push(startDate, endDate);
+    } else if (month) {
+      // Legacy support for Month Selector
       let year, monthNum;
       if (month.includes('-')) {
-        // Format: "2025-11"
-        [year, monthNum] = month.split('-');
+        const parts = month.split('-');
+        year = parts[0];
+        monthNum = parts[1];
       } else {
-        // Format: "November 2025"
-        const [monthName, yearStr] = month.split(' ');
-        year = yearStr;
-        monthNum = new Date(`${monthName} 1, ${year}`).getMonth() + 1;
+        const parts = month.split(' ');
+        if (parts.length >= 2) {
+          const monthName = parts[0];
+          year = parts[parts.length - 1];
+          const d = new Date(`${monthName} 1, ${year}`);
+          if (!isNaN(d.getTime())) {
+            monthNum = d.getMonth() + 1;
+          }
+        }
       }
-      query += ` AND MONTH(date) = ? AND YEAR(date) = ?`;
-      params.push(monthNum, year);
+      if (year && monthNum) {
+        query += ` AND MONTH(date) = ? AND YEAR(date) = ?`;
+        params.push(monthNum, year);
+      }
+    }
+
+    // 2. Status Filter
+    if (status && status !== 'All') {
+      query += ` AND status = ?`;
+      params.push(status);
+    }
+
+    // 3. Search Filter
+    if (search && search.trim() !== '') {
+      query += ` AND (ticket_number LIKE ? OR customer LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
     }
 
     query += ` ORDER BY date DESC`;
@@ -351,7 +375,7 @@ const getMyPay = async (req, res) => {
 
     // Determine status (all approved = "Up-to-date", otherwise "Pending")
     const allApproved = tickets.every(ticket => ticket.status === 'Approved');
-    const status = allApproved ? 'Up-to-date' : 'Pending';
+    const overallStatus = allApproved ? 'Up-to-date' : 'Pending';
 
     return res.json({
       success: true,
@@ -359,7 +383,7 @@ const getMyPay = async (req, res) => {
         summary: {
           totalHours,
           grossPay,
-          status
+          status: overallStatus
         },
         tickets: tickets.map(ticket => ({
           ...ticket,
@@ -915,6 +939,51 @@ const getTrucks = async (req, res) => {
   }
 };
 
+/**
+ * Get distinct months for this driver's tickets
+ */
+const getAvailableMonths = async (req, res) => {
+  try {
+    const driverId = req.user.driverId || req.user.id;
+
+    // Get actual driver ID
+    const [drivers] = await pool.execute(
+      'SELECT id FROM drivers WHERE (id = ? OR user_id = ?)',
+      [driverId, req.user.id]
+    );
+
+    if (drivers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+
+    const actualDriverId = drivers[0].id;
+
+    const [months] = await pool.execute(
+      `SELECT DISTINCT DATE_FORMAT(date, '%Y-%m') as month_val, 
+              DATE_FORMAT(date, '%b %Y') as month_label 
+       FROM tickets 
+       WHERE driver_id = ? AND deleted_at IS NULL
+       ORDER BY month_val DESC`,
+      [actualDriverId]
+    );
+
+    return res.json({
+      success: true,
+      data: months
+    });
+  } catch (error) {
+    console.error('Error fetching driver months:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch months',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
   getMyTickets,
@@ -929,6 +998,7 @@ module.exports = {
   getTrucks,
   addTruck,
   getEquipmentTypes,
-  addNewCustomer
+  addNewCustomer,
+  getAvailableMonths
 };
 
